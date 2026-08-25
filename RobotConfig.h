@@ -1,4 +1,15 @@
+#ifndef ROBOT_CONFIG_H
+#define ROBOT_CONFIG_H
 
+// ============================================================================
+// RobotConfig.h — all the constants you tune to match Virk's actual build:
+// link lengths, steps/rev, pins, motion limits, homing/calibration
+// parameters, software limits, and the timing constants for the step ISR
+// and the cartesian interpolator. ADJUST THESE to your own robot before
+// flashing — the defaults here are just reasonable starting points.
+// ============================================================================
+
+#include <Arduino.h>
 
 // ---------------- Arm parameters (ADJUST) ----------------
 constexpr float L1_MM = 150.0f;   // length of the first link
@@ -113,3 +124,5 @@ constexpr uint32_t INTERP_PERIOD_US = 1000000UL / INTERP_FREQ_HZ;
 // in GRBL/Marlin-style 3D printer/CNC firmware.
 constexpr float JUNCTION_DEVIATION_MM = 0.02f;
 constexpr int QUEUE_SIZE = 32;  // gcode waiting queue size
+
+#endif

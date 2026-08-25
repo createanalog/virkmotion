@@ -1,16 +1,30 @@
+#ifndef COMMAND_PARSER_H
+#define COMMAND_PARSER_H
 
+// ============================================================================
+// CommandParser.h — parses one line of Serial input into an action: report
+// status (?), redefine the origin (HOME/SETPOS), clear the queue (CLEAR),
+// run homing (CALIBRATE), or push a motion command (G0/G1/G2/G3) onto the
+// move queue. Also owns reportPosition(), the "?" status report.
+// ============================================================================
+
+#include <Arduino.h>
 #include "Kinematics.h"
+#include "Types.h"
+#include "StepperAxis.h"
+#include "CommandQueue.h"
+#include "Homing.h"
 
-void reportPosition();
-
+// Defined in virkmotion.ino.
 extern bool isBusy();
-extern void reportPosition();
-extern void queueClear();
-extern bool queuePush(const QueuedMove &m);
 extern StepperAxis axisJ1;
 extern StepperAxis axisJ2;
 extern StepperAxis axisZ;
+extern Pose getCurrentPose();
 extern bool setCurrentPose(const Pose &p, ElbowConfig elbow = ELBOW_UP);
+extern Pose currentTargetPose;
+
+void reportPosition();
 
 // ---------------- Very simple command parser ----------------
 void handleCommand(String line) {
@@ -26,13 +40,13 @@ void handleCommand(String line) {
     axisJ1.setPositionSteps(0);
     axisJ2.setPositionSteps(0);
     axisZ.setPositionSteps(0);
-    Serial.println("Origen redefinido en la posición actual.");
+    Serial.println("Origin redefined at the current position.");
     return;
   }
 
   if (line == "CLEAR") {
     queueClear();
-    Serial.println("Cola vaciada (el tramo en marcha, si lo hay, sigue hasta terminar).");
+    Serial.println("Queue cleared (the segment already in progress, if any, will still finish).");
     return;
   }
 
@@ -49,7 +63,7 @@ void handleCommand(String line) {
     if ((idx = line.indexOf('Z')) >= 0) p.z = line.substring(idx + 1).toFloat();
 
     if (setCurrentPose(p)) {
-      Serial.println("Posición redefinida (sin mover motores).");
+      Serial.println("Position redefined (no motors moved).");
       reportPosition();
     }
     return;
@@ -74,14 +88,14 @@ void handleCommand(String line) {
     if ((idx = line.indexOf('J')) >= 0) m.offsetJ = line.substring(idx + 1).toFloat();
 
     if (!queuePush(m)) {
-      Serial.println("ERROR: cola llena, espera a que avance o manda menos comandos seguidos");
+      Serial.println("ERROR: queue full, wait for it to advance or send fewer commands at once");
       return;
     }
     currentTargetPose = m.target; // so the next queued command chains correctly
     return;
   }
 
-  Serial.println("Comando no reconocido. Usa: G0 | G1 | G2 | G3 X.. Y.. Z.. F.. I.. J.. | CALIBRATE | SETPOS X.. Y.. Z.. | CLEAR | HOME | ?");
+  Serial.println("Unrecognized command. Use: G0 | G1 | G2 | G3 X.. Y.. Z.. F.. I.. J.. | CALIBRATE | SETPOS X.. Y.. Z.. | CLEAR | HOME | ?");
 }
 
 void reportPosition() {
@@ -90,9 +104,11 @@ void reportPosition() {
   Serial.print("X="); Serial.print(p.x, 2);
   Serial.print(" Y="); Serial.print(p.y, 2);
   Serial.print(" Z="); Serial.print(p.z, 2);
-  Serial.print("  | pasos J1="); Serial.print(axisJ1.getPositionSteps());
+  Serial.print("  | steps J1="); Serial.print(axisJ1.getPositionSteps());
   Serial.print(" J2="); Serial.print(axisJ2.getPositionSteps());
   Serial.print(" Z="); Serial.print(axisZ.getPositionSteps());
-  Serial.print("  | ocupado="); Serial.print(isBusy() ? "si" : "no");
-  Serial.print(" cola="); Serial.println(queueCount);
+  Serial.print("  | busy="); Serial.print(isBusy() ? "yes" : "no");
+  Serial.print(" queue="); Serial.println(queueCount);
 }
+
+#endif

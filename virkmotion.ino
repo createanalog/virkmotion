@@ -164,13 +164,13 @@ Pose getCurrentPose() {
 // could be beyond the normal operating range.
 bool setCurrentPose(const Pose &p, ElbowConfig elbow) {
   if (isBusy() || queueCount > 0) {
-    Serial.println("ERROR: no se puede redefinir la posición con movimientos en marcha o en cola (probá CLEAR primero)");
+    Serial.println("ERROR: cannot redefine the position while a move is in progress or queued (try CLEAR first)");
     return false;
   }
 
   JointAngles j = kinematics.inverse(p, elbow);
   if (!j.reachable) {
-    Serial.println("ERROR: esa posición no es alcanzable por la geometría del brazo");
+    Serial.println("ERROR: that position is not reachable by the arm's geometry");
     return false;
   }
 
@@ -201,21 +201,22 @@ void setup() {
   currentTargetPose = kinematics.forward(home);
 
   // COMPATIBILITY NOTE: the timer API changed between versions of the ESP32
-  // Arduino core. This code uses the "classic" API (core < 3.0, based on
-  // esp-idf 4.x). If your IDE has core 3.x installed (esp-idf 5.x),
-  // uncomment the block below and comment this one out.
+  // Arduino core. This code uses the NEW API (core 3.x, based on esp-idf 5.x).
+  // If your IDE has an older core (< 3.0, esp-idf 4.x) installed, comment
+  // this block out and uncomment the "classic API" block below instead.
   isrTimer = timerBegin(1000000); // tick = 1us
   timerAttachInterrupt(isrTimer, &onTimerISR);
   timerAlarm(isrTimer, 1000000UL / ISR_FREQ_HZ, true, 0); // period in us
 
-  // --- New API (ESP32 core 3.x / esp-idf 5.x), use instead of the one above: ---
-  // isrTimer = timerBegin(ISR_FREQ_HZ);       // frequency is passed directly now
-  // timerAttachInterrupt(isrTimer, &onTimerISR);
-  // timerAlarm(isrTimer, 1, true, 0);          // 1 tick = 1 timer period
+  // --- Classic API (ESP32 core < 3.0 / esp-idf 4.x), use instead of the block above: ---
+  // isrTimer = timerBegin(0, 80, true);              // prescaler 80 -> 1 tick = 1us (with an 80MHz clock)
+  // timerAttachInterrupt(isrTimer, &onTimerISR, true);
+  // timerAlarmWrite(isrTimer, 1000000UL / ISR_FREQ_HZ, true); // period in us
+  // timerAlarmEnable(isrTimer);
 
-  Serial.println("Controlador SCARA listo.");
-  Serial.println("Comandos: G0 | G1 | G2 | G3 X.. Y.. Z.. F.. I.. J.. | CALIBRATE | SETPOS X.. Y.. Z.. | CLEAR | HOME | ?");
-  Serial.println("Posición asumida al arrancar: theta1=0 theta2=0 z=0 (no calibrada). Corré CALIBRATE si tenés switches instalados.");
+  Serial.println("SCARA controller ready.");
+  Serial.println("Commands: G0 | G1 | G2 | G3 X.. Y.. Z.. F.. I.. J.. | CALIBRATE | SETPOS X.. Y.. Z.. | CLEAR | HOME | ?");
+  Serial.println("Assumed startup position: theta1=0 theta2=0 z=0 (not calibrated). Run CALIBRATE if limit switches are installed.");
   reportPosition();
 }
 

@@ -1,16 +1,51 @@
+#ifndef CARTESIAN_INTERPOLATION_H
+#define CARTESIAN_INTERPOLATION_H
 
+// ============================================================================
+// CartesianInterpolation.h — real cartesian moves (G1 straight lines, G2/G3
+// arcs): path geometry, software-limit checking, corner ("junction")
+// velocity between consecutive queued segments, and the per-tick
+// interpolator that turns the active segment into a per-axis velocity
+// command for StepperAxis's VELOCITY_TRACK mode.
+// ============================================================================
 
-extern bool jointsWithinSoftLimits(const JointAngles &j);
+#include <Arduino.h>
+#include "Kinematics.h"
+#include "Types.h"
+#include "RobotConfig.h"
+#include "StepperAxis.h"
+#include "CommandQueue.h"
+
+// Defined in virkmotion.ino.
 extern ScaraKinematics kinematics;
+extern StepperAxis axisJ1;
+extern StepperAxis axisJ2;
+extern StepperAxis axisZ;
+extern Pose currentTargetPose;
+extern float carryVelocity;
 
-// ---------------- Minimal 3D vectors (only what's needed for directions) ----------------
+struct Vec3 { float x, y, z; };
 
-Vec3 normalize3(Vec3 v) {
-  float len = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
-  if (len < 1e-6f) return {0, 0, 0};
-  return {v.x / len, v.y / len, v.z / len};
-}
-float dot3(Vec3 a, Vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+enum PathType { PATH_LINE, PATH_ARC };
+
+struct CartesianMoveState {
+  bool active = false;
+  PathType type = PATH_LINE;
+  Pose start, end;
+  ElbowConfig elbow = ELBOW_UP;
+  TrapProfile pathProfile;
+  float totalLength = 0.0f;
+  unsigned long moveStartMicros = 0;
+  unsigned long lastTickMicros = 0;
+  long lastCmdStepsJ1 = 0, lastCmdStepsJ2 = 0, lastCmdStepsZ = 0;
+  bool warnedSaturation = false;
+
+  // PATH_ARC only:
+  Pose center;
+  float radius = 0.0f;
+  float startAngle = 0.0f;
+  float deltaAngle = 0.0f;
+};
 
 // ---------------- Software limits ----------------
 // Checks that an inverse-kinematics solution is WITHIN each axis's safe
@@ -32,15 +67,24 @@ bool jointsWithinSoftLimits(const JointAngles &j) {
 bool solveAndCheckLimits(const Pose &target, ElbowConfig elbow, JointAngles &outJoints) {
   outJoints = kinematics.inverse(target, elbow);
   if (!outJoints.reachable) {
-    Serial.println("ERROR: punto fuera del área de trabajo (geometría del brazo)");
+    Serial.println("ERROR: point outside the workspace (arm geometry)");
     return false;
   }
   if (!jointsWithinSoftLimits(outJoints)) {
-    Serial.println("ERROR: punto fuera de los límites de software (rango seguro configurado)");
+    Serial.println("ERROR: point outside the software limits (configured safe range)");
     return false;
   }
   return true;
 }
+
+// ---------------- Minimal 3D vectors (only what's needed for directions) ----------------
+
+Vec3 normalize3(Vec3 v) {
+  float len = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+  if (len < 1e-6f) return {0, 0, 0};
+  return {v.x / len, v.y / len, v.z / len};
+}
+float dot3(Vec3 a, Vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 
 // ---------------- G1/G2/G3: real cartesian interpolation ----------------
 
@@ -105,12 +149,12 @@ bool planGeometry(const QueuedMove &m, const Pose &start, CartesianMoveState &ou
 
   constexpr float ARC_TOLERANCE_MM = 0.5f;
   if (fabsf(rStart - rEnd) > ARC_TOLERANCE_MM) {
-    Serial.println("ERROR: X/Y de destino no está a la misma distancia del centro (I/J) que el origen");
+    Serial.println("ERROR: target X/Y is not the same distance from the center (I/J) as the start point");
     return false;
   }
   float radius = (rStart + rEnd) * 0.5f;
   if (radius < 0.5f) {
-    Serial.println("ERROR: radio de arco demasiado pequeño (revisa I/J)");
+    Serial.println("ERROR: arc radius too small (check I/J)");
     return false;
   }
 
@@ -245,7 +289,7 @@ void cartesianTick(float dt) {
   Pose p = poseAtFraction(cMove, frac);
   JointAngles j = kinematics.inverse(p, cMove.elbow);
   if (!j.reachable || !jointsWithinSoftLimits(j)) {
-    Serial.println("ERROR: punto intermedio fuera de rango/límites, deteniendo movimiento");
+    Serial.println("ERROR: intermediate point out of range/limits, stopping the move");
     axisJ1.stopTracking(); axisJ2.stopTracking(); axisZ.stopTracking();
     cMove.active = false;
     carryVelocity = 0.0f;
@@ -264,7 +308,7 @@ void cartesianTick(float dt) {
   sat |= clampVelocity(vJ2, J2_VMAX_SPS);
   sat |= clampVelocity(vZ, Z_VMAX_SPS);
   if (sat && !cMove.warnedSaturation) {
-    Serial.println("AVISO: un eje llegó a su velocidad máxima durante el movimiento (posible cercanía a singularidad)");
+    Serial.println("WARNING: an axis hit its maximum velocity during this move (possibly near a singularity)");
     cMove.warnedSaturation = true;
   }
 
@@ -293,3 +337,5 @@ void updateCartesianInterpolation() {
   cMove.lastTickMicros = now;
   cartesianTick(dt);
 }
+
+#endif

@@ -1,5 +1,9 @@
-// ---------------- Calibration (homing with switches) ----------------
-// Two-stage routine, standard in CNC/3D-printer firmware:
+#ifndef HOMING_H
+#define HOMING_H
+
+// ============================================================================
+// Homing.h — CALIBRATE: two-stage switch homing routine, standard in
+// CNC/3D-printer firmware:
 //   1) Fast approach until the switch triggers.
 //   2) Backing off until it releases + a bit more, then a SLOW re-approach —
 //      that way the trigger point actually used for calibration is much
@@ -7,13 +11,20 @@
 // It's blocking (doesn't process other commands while it runs): the step
 // ISR keeps working regardless because it's a hardware interrupt, so
 // motion isn't interrupted even though loop() is waiting inside a while.
+// ============================================================================
 
+#include <Arduino.h>
+#include "Kinematics.h"
+#include "RobotConfig.h"
+#include "StepperAxis.h"
+#include "CommandQueue.h"
+
+// Defined in virkmotion.ino.
 extern bool isBusy();
 extern void reportPosition();
 extern StepperAxis axisJ1;
 extern StepperAxis axisJ2;
 extern StepperAxis axisZ;
-extern int queueCount;
 extern Pose getCurrentPose();
 extern Pose currentTargetPose;
 extern float carryVelocity;
@@ -26,11 +37,11 @@ bool homeAxis(StepperAxis &axis, uint8_t limitPin, int dirSign,
 
 bool runCalibration() {
   if (isBusy() || queueCount > 0) {
-    Serial.println("ERROR: no se puede calibrar con movimientos en marcha o en cola (probá CLEAR primero)");
+    Serial.println("ERROR: cannot calibrate while a move is in progress or queued (try CLEAR first)");
     return false;
   }
 
-  Serial.println("=== Iniciando calibración (homing) ===");
+  Serial.println("=== Starting calibration (homing) ===");
 
   long j1Steps = lroundf(radians(J1_HOMING_ANGLE_DEG) * STEPS_PER_RAD_J1);
   long j2Steps = lroundf(radians(J2_HOMING_ANGLE_DEG) * STEPS_PER_RAD_J2);
@@ -47,7 +58,7 @@ bool runCalibration() {
                       Z_VMAX_SPS * HOMING_BACKOFF_FRACTION, zSteps, "Z");
 
   if (!ok) {
-    Serial.println("=== Calibración ABORTADA ===");
+    Serial.println("=== Calibration ABORTED ===");
     return false;
   }
 
@@ -56,17 +67,17 @@ bool runCalibration() {
   currentTargetPose = getCurrentPose();
   carryVelocity = 0.0f;
 
-  Serial.println("=== Calibración completa ===");
+  Serial.println("=== Calibration complete ===");
   reportPosition();
   return true;
 }
 
-// ------ HELPERS ------ 
+// ------ HELPERS ------
 
 bool homeAxis(StepperAxis &axis, uint8_t limitPin, int dirSign,
               float fastSps, float slowSps, float backoffSps,
               long knownPositionSteps, const char *axisName) {
-  Serial.print("Calibrando "); Serial.print(axisName); Serial.println("...");
+  Serial.print("Calibrating "); Serial.print(axisName); Serial.println("...");
 
   // If we're already sitting on the switch at startup, clear it first.
   if (digitalRead(limitPin) == LOW) {
@@ -76,7 +87,7 @@ bool homeAxis(StepperAxis &axis, uint8_t limitPin, int dirSign,
     axis.setTrackingVelocity(0);
     axis.stopTracking();
     if (!ok) {
-      Serial.println("ERROR: no se pudo despejar el switch inicial (timeout)");
+      Serial.println("ERROR: could not clear the initial switch state (timeout)");
       return false;
     }
   }
@@ -88,7 +99,7 @@ bool homeAxis(StepperAxis &axis, uint8_t limitPin, int dirSign,
   axis.setTrackingVelocity(0);
   axis.stopTracking();
   if (!hit) {
-    Serial.println("ERROR: timeout buscando el switch (revisá cableado/dirección/HOMING_DIR)");
+    Serial.println("ERROR: timeout looking for the switch (check wiring/direction/HOMING_DIR)");
     return false;
   }
 
@@ -99,7 +110,7 @@ bool homeAxis(StepperAxis &axis, uint8_t limitPin, int dirSign,
   axis.setTrackingVelocity(0);
   axis.stopTracking();
   if (!released) {
-    Serial.println("ERROR: timeout retrocediendo del switch");
+    Serial.println("ERROR: timeout backing off the switch");
     return false;
   }
   moveStepsBlocking(axis, -dirSign * backoffSps, HOMING_BACKOFF_EXTRA_STEPS);
@@ -111,7 +122,7 @@ bool homeAxis(StepperAxis &axis, uint8_t limitPin, int dirSign,
   axis.setTrackingVelocity(0);
   axis.stopTracking();
   if (!hit) {
-    Serial.println("ERROR: timeout en el reacercamiento lento");
+    Serial.println("ERROR: timeout during the slow re-approach");
     return false;
   }
 
@@ -120,7 +131,7 @@ bool homeAxis(StepperAxis &axis, uint8_t limitPin, int dirSign,
   // 4) Move a bit away from the switch so it isn't left pressed
   moveStepsBlocking(axis, -dirSign * backoffSps, HOMING_CLEARANCE_STEPS);
 
-  Serial.print(axisName); Serial.println(": calibrado.");
+  Serial.print(axisName); Serial.println(": calibrated.");
   return true;
 }
 
@@ -146,3 +157,5 @@ void moveStepsBlocking(StepperAxis &axis, float signedSps, long steps) {
   axis.setTrackingVelocity(0);
   axis.stopTracking();
 }
+
+#endif
