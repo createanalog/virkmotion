@@ -24,21 +24,72 @@ constexpr float STEPS_PER_MM_Z   = 80.0f;   // linear Z axis (leadscrew/belt), s
 constexpr float STEPS_PER_RAD_J1 = STEPS_PER_REV_J1 / (2.0f * PI);
 constexpr float STEPS_PER_RAD_J2 = STEPS_PER_REV_J2 / (2.0f * PI);
 
-// ---------------- Pins (ADJUST to your wiring) ----------------
-constexpr uint8_t J1_STEP_PIN = 25;
-constexpr uint8_t J1_DIR_PIN  = 26;
-constexpr uint8_t J2_STEP_PIN = 27;
-constexpr uint8_t J2_DIR_PIN  = 14;
-constexpr uint8_t Z_STEP_PIN  = 12;
-constexpr uint8_t Z_DIR_PIN   = 13;
+// ---------------- Pins — Wemos D1 R32 + standard CNC Shield V3 ----------------
+// The Wemos D1 R32 puts the ESP32 in an Arduino Uno footprint, so a CNC
+// Shield V3 (X/Y/Z/A driver sockets, GRBL-style pin layout) plugs in
+// directly. The shield fixes WHICH Uno pin (D2, D5, D9, etc.) each signal
+// lands on — you can't rewire that without cutting traces — so what
+// actually varies per board is which ESP32 GPIO sits behind each Uno pin
+// label. The mapping below is for the Wemos D1 R32 specifically; a
+// different ESP32-in-Uno-clothing board could differ.
+//
+// Shield socket -> robot axis assignment used here:
+//   X socket -> J1 (shoulder)      Y socket -> J2 (elbow)      Z socket -> Z (lift)
+// The shield's 4th (A) axis socket is left unused for now — it shares D12/
+// D13 with the shield's spindle-enable/spindle-dir pins and needs a jumper
+// to run independently. Reserved for a future 4th joint (wrist rotation).
+//
+//   Signal          Shield/Uno pin   Wemos D1 R32 GPIO
+//   X.STEP (J1)     D2               GPIO26
+//   X.DIR  (J1)     D5               GPIO16
+//   Y.STEP (J2)     D3               GPIO25
+//   Y.DIR  (J2)     D6               GPIO27
+//   Z.STEP (Z)      D4               GPIO17
+//   Z.DIR  (Z)      D7               GPIO14
+//   EN (shared)     D8               GPIO12  <-- see warning below
+//   X-endstop (J1)  D9               GPIO13
+//   Y-endstop (J2)  D10              GPIO5   <-- see warning below
+//   Z-endstop (Z)   D11              GPIO23
+//   A.STEP (spare)  D12              GPIO19  (unused, reserved for a 4th joint)
+//   A.DIR  (spare)  D13              GPIO18  (unused, reserved for a 4th joint)
+//
+// !! IMPORTANT BOOT-TIME WARNING !!
+// GPIO12 and GPIO5 are ESP32 "strapping pins", sampled once at power-on/
+// reset to choose flash voltage (GPIO12) and SDIO boot config (GPIO5):
+//  - GPIO12 (the shield's shared driver ENABLE, D8) must be LOW at boot,
+//    or the ESP32 can select 1.8V flash mode and fail to boot/brown out.
+//    Many CNC Shield V3 boards have a pull-up on the EN line so drivers
+//    default to disabled — if yours does, and Virk won't boot with the
+//    shield's drivers installed, that pull-up is almost certainly why.
+//    A pull-down of a few kOhm from D8 to GND (or cutting the shield's own
+//    pull-up, if present) fixes it. GPIO12 defaults LOW on its own if left
+//    unconnected, so this only bites when something actively pulls it high.
+//  - GPIO5 (Y-endstop, D10) wants to be HIGH at boot, which lines up fine
+//    with INPUT_PULLUP + a normally-open switch — just don't power the
+//    robot on with the Y limit switch physically pressed.
+// Neither is likely to cause trouble in normal use once past boot, but
+// they're worth knowing about if Virk ever fails to start with the shield
+// attached.
+//
+// Also note: this firmware doesn't currently drive the shared ENABLE pin
+// (StepperAxis has no enable-pin concept) — for now, wire/jumper D8 to
+// stay LOW so the drivers are always enabled, or ask me to add ENABLE_PIN
+// handling to setup() if you'd rather control it from code.
+constexpr uint8_t J1_STEP_PIN = 26;
+constexpr uint8_t J1_DIR_PIN  = 16;
+constexpr uint8_t J2_STEP_PIN = 25;
+constexpr uint8_t J2_DIR_PIN  = 27;
+constexpr uint8_t Z_STEP_PIN  = 17;
+constexpr uint8_t Z_DIR_PIN   = 14;
 
-// Limit switches for homing (calibration). Use INPUT_PULLUP and are
-// considered "triggered" when they read LOW (normally-open switch to GND).
-// WATCH OUT: on ESP32, GPIO34-39 do NOT have an internal pull-up resistor —
-// if you use one of those, add an external resistor or pick a different pin.
-constexpr uint8_t J1_LIMIT_PIN = 32;
-constexpr uint8_t J2_LIMIT_PIN = 33;
-constexpr uint8_t Z_LIMIT_PIN  = 4;
+constexpr uint8_t ENABLE_PIN  = 12; // shield's shared driver ENABLE (D8) — see warning above; not yet driven by firmware
+
+// Limit switches for homing (calibration), wired to the shield's fixed
+// X/Y/Z endstop headers. Use INPUT_PULLUP and are considered "triggered"
+// when they read LOW (normally-open switch to GND).
+constexpr uint8_t J1_LIMIT_PIN = 13;
+constexpr uint8_t J2_LIMIT_PIN = 5;
+constexpr uint8_t Z_LIMIT_PIN  = 23;
 
 // ---------------- Motion limits (ADJUST) ----------------
 constexpr float J1_VMAX_SPS = 4000.0f;   // steps/s
